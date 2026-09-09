@@ -1,0 +1,14 @@
+# Mariana Almeida
+
+> IA para mulheres empreendedoras. Responde a 3 perguntas rápidas e descobre o melhor caminho para crescer o teu negócio com inteligência artificial.
+
+Mariana Almeida (@mariiana.ai) ajuda mulheres empreendedoras a integrar IA nos seus negócios através de formação, assistentes prontos a usar e consultoria personalizada.
+
+## Pages
+
+- [Home](/): Quiz interativo, produtos e formas de trabalhar com a Mariana.
+
+## Optional
+
+- [Academia Impulsia](https://impulsia-ma.lovable.app): Cursos e formações práticas de IA.
+- [Comunidade Mulheres em IA](https://www.mulheresemia.pt/): Guias gratuitos, prompts e comunidade.
