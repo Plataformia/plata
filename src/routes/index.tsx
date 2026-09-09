@@ -1,11 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import marianaVideoAsset from "@/assets/mariana-video.mp4.asset.json";
-import videoThumb from "@/assets/video-thumb.png.asset.json";
-import marianaAsset from "@/assets/mariana.jpg.asset.json";
+const marianaVideoAsset = { url: "/mariana-video.mp4" };
+import videoThumbImg from "@/assets/video-thumb.png";
+const videoThumb = { url: videoThumbImg };
+import marianaImg from "@/assets/mariana.jpg";
+const marianaAsset = { url: marianaImg };
 import academiaImpulsiaImg from "@/assets/academia-impulsia-gold.png";
 const academiaImpulsiaAsset = { url: academiaImpulsiaImg };
-import caixaPandoraAsset from "@/assets/caixa-pandora.png.asset.json";
+import caixaPandoraImg from "@/assets/caixa-pandora.png";
+const caixaPandoraAsset = { url: caixaPandoraImg };
 import parceriasImg from "@/assets/parcerias-palestras.png";
 import aulasFlashImg from "@/assets/aulas-flash.png";
 
