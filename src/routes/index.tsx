@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SITE_URL_SLASH } from "@/lib/site";
 const marianaVideoAsset = { url: "/mariana-video.mp4" };
 import videoThumbImg from "@/assets/video-thumb.png";
 const videoThumb = { url: videoThumbImg };
@@ -15,11 +16,11 @@ import aulasFlashImg from "@/assets/aulas-flash.png";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { property: "og:url", content: "https://linkia-mariana.lovable.app/" },
-      { name: "twitter:url", content: "https://linkia-mariana.lovable.app/" },
+      { property: "og:url", content: SITE_URL_SLASH },
+      { name: "twitter:url", content: SITE_URL_SLASH },
     ],
     links: [
-      { rel: "canonical", href: "https://linkia-mariana.lovable.app/" },
+      { rel: "canonical", href: SITE_URL_SLASH },
     ],
   }),
   component: Index,
@@ -282,19 +283,6 @@ function Index() {
       setIsPlaying(false);
     }
   };
-
-  
-
-  useEffect(() => {
-    const id = "ma-fonts";
-    if (document.getElementById(id)) return;
-    const link = document.createElement("link");
-    link.id = id;
-    link.rel = "stylesheet";
-    link.href =
-      "https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600&display=swap";
-    document.head.appendChild(link);
-  }, []);
 
   return (
     <>

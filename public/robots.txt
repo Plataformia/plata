@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://linkia-mariana.lovable.app/sitemap.xml
+Sitemap: https://plata-mariana-e2dd.vercel.app/sitemap.xml

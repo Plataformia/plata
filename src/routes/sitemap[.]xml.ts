@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
-const BASE_URL = "https://linkia-mariana.lovable.app";
+import { SITE_URL } from "@/lib/site";
+
+const BASE_URL = SITE_URL;
 
 interface SitemapEntry {
   path: string;

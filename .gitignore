@@ -30,3 +30,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Segredos (nunca vao para o repositorio, que e publico)
+.env
+.env.*
+!.env.example
+*.pem
+*key.json
+credentials.json

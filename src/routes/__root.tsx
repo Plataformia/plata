@@ -10,6 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { SITE_URL_SLASH } from "../lib/site";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -103,7 +104,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "@type": "Person",
           name: "Mariana Almeida",
           alternateName: "@mariiana.ai",
-          url: "https://linkia-mariana.lovable.app/",
+          url: SITE_URL_SLASH,
           jobTitle: "Consultora e formadora de Inteligência Artificial",
           description:
             "Inteligência Artificial para Mulheres Empreendedoras - aprende a usar e aplica no teu negócio.",
@@ -120,7 +121,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "@context": "https://schema.org",
           "@type": "WebSite",
           name: "Mariana Almeida",
-          url: "https://linkia-mariana.lovable.app/",
+          url: SITE_URL_SLASH,
           description:
             "Inteligência Artificial para Mulheres Empreendedoras - aprende a usar e aplica no teu negócio.",
           inLanguage: "pt-PT",
