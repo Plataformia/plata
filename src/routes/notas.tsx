@@ -4,6 +4,8 @@ import {
   Copy,
   Download,
   FileJson,
+  Mic,
+  MicOff,
   Moon,
   Pencil,
   Plus,
@@ -69,6 +71,45 @@ const TAG_LABEL: Record<TagKey, string> = {
   citacao: "citação",
   contacto: "contacto",
 };
+
+/**
+ * A Web Speech API nao faz parte dos tipos do TypeScript, por isso
+ * fica aqui o minimo que usamos. Corre no proprio navegador, nao e
+ * um servico de transcricao contratado por nos.
+ */
+interface AlternativaVoz {
+  transcript: string;
+}
+interface ResultadoVoz {
+  isFinal: boolean;
+  length: number;
+  [indice: number]: AlternativaVoz;
+}
+interface EventoVoz {
+  resultIndex: number;
+  results: { length: number; [indice: number]: ResultadoVoz };
+}
+interface MotorVoz {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((evento: EventoVoz) => void) | null;
+  onerror: ((evento: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+type ConstrutorVoz = new () => MotorVoz;
+
+function motorDeVoz(): ConstrutorVoz | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: ConstrutorVoz;
+    webkitSpeechRecognition?: ConstrutorVoz;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 type Note = {
   id: string;
@@ -223,11 +264,17 @@ function Notas() {
   const [mostrarAtalho, setMostrarAtalho] = useState(false);
   const [ultimaId, setUltimaId] = useState<string | null>(null);
   const [tema, setTema] = useState<Tema>("claro");
+  const [suportaVoz, setSuportaVoz] = useState(false);
+  const [aOuvir, setAOuvir] = useState(false);
 
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLElement>(null);
   const ficheiroRef = useRef<HTMLInputElement>(null);
   const avisoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const motorRef = useRef<MotorVoz | null>(null);
+  const aOuvirRef = useRef(false);
+  const baseRef = useRef("");
+  const finalRef = useRef("");
 
   const dizer = useCallback((msg: string) => {
     setAviso(msg);
@@ -321,6 +368,87 @@ function Notas() {
     return () => io.disconnect();
   }, []);
 
+  useEffect(() => {
+    setSuportaVoz(motorDeVoz() !== null);
+    return () => {
+      aOuvirRef.current = false;
+      motorRef.current?.abort();
+    };
+  }, []);
+
+  // Ditado. Corre na Web Speech API do proprio navegador: no iPad e o
+  // mesmo motor do microfone do teclado. O texto vai sendo acrescentado
+  // ao que ja esta na caixa, nunca substitui.
+  const pararDitado = useCallback(() => {
+    aOuvirRef.current = false;
+    setAOuvir(false);
+    motorRef.current?.stop();
+  }, []);
+
+  const comecarDitado = useCallback(() => {
+    const Motor = motorDeVoz();
+    if (!Motor) {
+      dizer("Este navegador não faz ditado. Usa o microfone do teclado.");
+      return;
+    }
+    const motor = new Motor();
+    motor.lang = "pt-PT";
+    motor.continuous = true;
+    motor.interimResults = true;
+
+    baseRef.current = texto ? `${texto.trimEnd()} ` : "";
+    finalRef.current = "";
+
+    motor.onresult = (evento) => {
+      let porConfirmar = "";
+      for (let i = evento.resultIndex; i < evento.results.length; i += 1) {
+        const resultado = evento.results[i];
+        if (resultado.isFinal) finalRef.current += resultado[0].transcript;
+        else porConfirmar += resultado[0].transcript;
+      }
+      setTexto((baseRef.current + finalRef.current + porConfirmar).slice(0, 5000));
+    };
+
+    motor.onerror = (evento) => {
+      aOuvirRef.current = false;
+      setAOuvir(false);
+      if (evento.error === "not-allowed" || evento.error === "service-not-allowed") {
+        dizer("Falta dar permissão do microfone a esta página.");
+      } else if (evento.error !== "aborted") {
+        dizer("O ditado parou. Carrega outra vez para continuar.");
+      }
+    };
+
+    // O Safari corta o ditado ao fim de uns segundos de silencio.
+    // Enquanto o botao estiver ligado, volta a ouvir sozinho.
+    motor.onend = () => {
+      if (!aOuvirRef.current) {
+        setAOuvir(false);
+        return;
+      }
+      try {
+        motor.start();
+      } catch {
+        aOuvirRef.current = false;
+        setAOuvir(false);
+      }
+    };
+
+    try {
+      motor.start();
+      motorRef.current = motor;
+      aOuvirRef.current = true;
+      setAOuvir(true);
+    } catch {
+      dizer("Não consegui ligar o microfone.");
+    }
+  }, [texto, dizer]);
+
+  const alternarDitado = () => {
+    if (aOuvir) pararDitado();
+    else comecarDitado();
+  };
+
   const irParaEscrever = () => {
     composerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     window.setTimeout(() => areaRef.current?.focus(), 320);
@@ -385,9 +513,11 @@ function Notas() {
       createdAt: Date.now(),
       ...(tag === "acao" ? { done: false } : {}),
     };
+    if (aOuvirRef.current) pararDitado();
     setNotes((atuais) => [...atuais, nova]);
     setUltimaId(nova.id);
     setTexto("");
+    dizer("Nota guardada.");
     // preventScroll: sem isto o painel fixo do iPad salta de volta ao topo
     areaRef.current?.focus({ preventScroll: true });
   };
@@ -596,10 +726,19 @@ function Notas() {
             </div>
 
             <div className="notas-guardar">
-              <span className="notas-atalho">
-                <kbd>⌘</kbd>
-                <kbd>↵</kbd> guarda
-              </span>
+              {suportaVoz ? (
+                <button
+                  type="button"
+                  className={`notas-botao-voz ${aOuvir ? "a-ouvir" : ""}`}
+                  onClick={alternarDitado}
+                  aria-pressed={aOuvir}
+                >
+                  {aOuvir ? <MicOff size={16} /> : <Mic size={16} />}
+                  {aOuvir ? "A ouvir" : "Ditar"}
+                </button>
+              ) : (
+                <span className="notas-atalho">Usa o microfone do teclado</span>
+              )}
               <button
                 type="button"
                 className="notas-botao-principal"
@@ -610,6 +749,15 @@ function Notas() {
                 Guardar nota
               </button>
             </div>
+            <p className="notas-dica">
+              {suportaVoz
+                ? "O ditado usa o serviço de voz do teu dispositivo, o mesmo do microfone do teclado."
+                : "Toca na caixa e usa o microfone do teclado do iPad para ditar."}{" "}
+              <span className="notas-so-largo">
+                <kbd>⌘</kbd>
+                <kbd>↵</kbd> guarda a nota.
+              </span>
+            </p>
           </section>
 
           {notes.length > 0 && (
