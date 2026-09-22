@@ -4,6 +4,7 @@ import {
   Copy,
   Download,
   FileJson,
+  Link2,
   Mic,
   MicOff,
   Moon,
@@ -237,6 +238,33 @@ function paraMarkdown(notes: Note[]) {
   return linhas.join("\n").trimEnd() + "\n";
 }
 
+/**
+ * Passagem de notas entre enderecos.
+ *
+ * O localStorage e por endereco: o que se escreve na pre-visualizacao
+ * do Lovable nao aparece no site publicado, nem o da Vercel aparece no
+ * do Lovable. Como nao ha servidor para fazer a ponte, as notas viajam
+ * dentro do proprio link, no fragmento, que nunca chega a sair do
+ * navegador para servidor nenhum.
+ */
+const LIMITE_LINK = 30000;
+
+function paraBase64Url(texto: string) {
+  const bytes = new TextEncoder().encode(texto);
+  let binario = "";
+  bytes.forEach((b) => {
+    binario += String.fromCharCode(b);
+  });
+  return btoa(binario).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function deBase64Url(dados: string) {
+  const normalizado = dados.replace(/-/g, "+").replace(/_/g, "/");
+  const binario = atob(normalizado.padEnd(Math.ceil(normalizado.length / 4) * 4, "="));
+  const bytes = Uint8Array.from(binario, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function descarregar(conteudo: string, tipo: string, nome: string) {
   const blob = new Blob([conteudo], { type: tipo });
   const url = URL.createObjectURL(blob);
@@ -367,6 +395,41 @@ function Notas() {
     io.observe(alvo);
     return () => io.disconnect();
   }, []);
+
+  // Notas que chegam dentro de um link, vindas de outro endereco.
+  // Tambem escuta o hashchange: colar o link num separador que ja tem a
+  // app aberta muda o endereco sem recarregar a pagina.
+  const receberDeLink = useCallback(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#notas=")) return;
+    try {
+      const chegadas = limparNotas(JSON.parse(deBase64Url(hash.slice(7))));
+      if (chegadas.length) {
+        setNotes((atuais) => {
+          const ids = new Set(atuais.map((n) => n.id));
+          const novas = chegadas.filter((n) => !ids.has(n.id));
+          dizer(
+            novas.length
+              ? `${novas.length} ${novas.length === 1 ? "nota recebida" : "notas recebidas"}.`
+              : "Essas notas já cá estavam.",
+          );
+          return [...atuais, ...novas].sort((a, b) => a.createdAt - b.createdAt);
+        });
+      } else {
+        dizer("Esse link não trazia notas.");
+      }
+    } catch {
+      dizer("Esse link de transferência não é válido.");
+    }
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, [dizer]);
+
+  useEffect(() => {
+    if (!carregado) return;
+    receberDeLink();
+    window.addEventListener("hashchange", receberDeLink);
+    return () => window.removeEventListener("hashchange", receberDeLink);
+  }, [carregado, receberDeLink]);
 
   useEffect(() => {
     setSuportaVoz(motorDeVoz() !== null);
@@ -602,6 +665,23 @@ function Notas() {
     leitor.readAsText(ficheiro);
   };
 
+  const linkDeTransferencia = async () => {
+    if (!notes.length) return dizer("Ainda não há notas para passar.");
+    const link = `${window.location.origin}${window.location.pathname}#notas=${paraBase64Url(
+      JSON.stringify(notes),
+    )}`;
+    if (link.length > LIMITE_LINK) {
+      dizer("São notas demais para irem por link. Usa a Cópia .json e a Importação.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      dizer("Link copiado. Abre-o no outro endereço e as notas vão com ele.");
+    } catch {
+      dizer("O navegador não deixou copiar. Usa a Cópia .json e a Importação.");
+    }
+  };
+
   const limparTudo = () => {
     if (!confirmarLimpeza) {
       setConfirmarLimpeza(true);
@@ -804,6 +884,10 @@ function Notas() {
                 <Upload size={15} />
                 Importar .json
               </button>
+              <button type="button" className="notas-botao" onClick={linkDeTransferencia}>
+                <Link2 size={15} />
+                Link com as notas
+              </button>
               <button
                 type="button"
                 className={`notas-botao perigo ${confirmarLimpeza ? "armado" : ""}`}
@@ -826,9 +910,11 @@ function Notas() {
               }}
             />
             <p className="notas-privacidade">
-              As notas ficam guardadas só neste navegador, neste dispositivo. Não há servidor, não
-              há conta, não há cópia noutro lado. Se limpares os dados do navegador, desaparecem:
-              descarrega o .md no fim do evento.
+              As notas ficam guardadas só neste navegador, neste dispositivo, e são próprias de cada
+              endereço: o que escreves aqui não aparece noutro endereço desta app. Para as passar,
+              usa o link com as notas ou a cópia .json. Não há servidor, não há conta, não há cópia
+              noutro lado: se limpares os dados do navegador, desaparecem. Descarrega o .md no fim
+              do evento.
             </p>
           </section>
         </div>
