@@ -1,4 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  Check,
+  Copy,
+  Download,
+  FileJson,
+  Moon,
+  Pencil,
+  Plus,
+  Search,
+  Sun,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 /**
@@ -8,6 +22,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
  * dispositivo, e nunca saem daqui: sem base de dados, sem servidor,
  * sem terceiros. Por isso a página leva noindex e há sempre forma de
  * exportar (.md e .json): limpar os dados do navegador apaga tudo.
+ *
+ * Desenhado para iPad: duas colunas a partir dos 768px, painel de
+ * escrita sempre à vista à esquerda, notas à direita. Tema claro e
+ * escuro porque as salas de conferência costumam estar às escuras.
  */
 
 export const Route = createFileRoute("/notas")({
@@ -20,7 +38,9 @@ export const Route = createFileRoute("/notas")({
         content:
           "Bloco de notas do evento da nilg.ai. Corre no navegador, as notas ficam neste dispositivo.",
       },
-      { name: "theme-color", content: "#F6EFE6" },
+      { name: "theme-color", content: "#F7F1E8" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "notas nilg.ai" },
     ],
   }),
   component: Notas,
@@ -29,8 +49,10 @@ export const Route = createFileRoute("/notas")({
 const EVENTO = "nilg.ai";
 const STORAGE_KEY = "linkia.notas.nilg.v1";
 const DRAFT_KEY = "linkia.notas.nilg.draft.v1";
+const TEMA_KEY = "linkia.notas.nilg.tema.v1";
 
 type TagKey = "insight" | "ideia" | "acao" | "citacao" | "contacto";
+type Tema = "claro" | "escuro";
 
 const TAGS: { key: TagKey; label: string; hint: string }[] = [
   { key: "insight", label: "insight", hint: "Algo que mudou a minha cabeça" },
@@ -130,6 +152,19 @@ function nomeFicheiro(ext: string) {
   return `notas-nilg-ai-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
 }
 
+/** Agrupa por sessão, mantendo a ordem de chegada dentro de cada grupo. */
+function agrupar(notes: Note[]) {
+  const ordenadas = [...notes].sort((a, b) => a.createdAt - b.createdAt);
+  const mapa = new Map<string, Note[]>();
+  ordenadas.forEach((n) => {
+    const chave = n.talk.trim() || SEM_SESSAO;
+    const lista = mapa.get(chave);
+    if (lista) lista.push(n);
+    else mapa.set(chave, [n]);
+  });
+  return [...mapa.entries()].map(([talk, lista]) => ({ talk, notes: lista }));
+}
+
 function paraMarkdown(notes: Note[]) {
   const linhas: string[] = [
     `# Notas · ${EVENTO}`,
@@ -145,8 +180,7 @@ function paraMarkdown(notes: Note[]) {
     linhas.push("");
   }
 
-  const grupos = agrupar(notes);
-  grupos.forEach((grupo) => {
+  agrupar(notes).forEach((grupo) => {
     linhas.push(`## ${grupo.talk}`, "");
     grupo.notes.forEach((n) => {
       const marca = n.tag === "acao" ? (n.done ? "[x] " : "[ ] ") : "";
@@ -160,19 +194,6 @@ function paraMarkdown(notes: Note[]) {
   });
 
   return linhas.join("\n").trimEnd() + "\n";
-}
-
-/** Agrupa por sessão, mantendo a ordem de chegada dentro de cada grupo. */
-function agrupar(notes: Note[]) {
-  const ordenadas = [...notes].sort((a, b) => a.createdAt - b.createdAt);
-  const mapa = new Map<string, Note[]>();
-  ordenadas.forEach((n) => {
-    const chave = n.talk.trim() || SEM_SESSAO;
-    const lista = mapa.get(chave);
-    if (lista) lista.push(n);
-    else mapa.set(chave, [n]);
-  });
-  return [...mapa.entries()].map(([talk, lista]) => ({ talk, notes: lista }));
 }
 
 function descarregar(conteudo: string, tipo: string, nome: string) {
@@ -200,6 +221,8 @@ function Notas() {
   const [aviso, setAviso] = useState("");
   const [confirmarLimpeza, setConfirmarLimpeza] = useState(false);
   const [mostrarAtalho, setMostrarAtalho] = useState(false);
+  const [ultimaId, setUltimaId] = useState<string | null>(null);
+  const [tema, setTema] = useState<Tema>("claro");
 
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLElement>(null);
@@ -228,6 +251,12 @@ function Notas() {
     try {
       const rascunho = window.localStorage.getItem(DRAFT_KEY);
       if (rascunho) setTexto(rascunho);
+      const temaGuardado = window.localStorage.getItem(TEMA_KEY);
+      if (temaGuardado === "escuro" || temaGuardado === "claro") {
+        setTema(temaGuardado);
+      } else if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+        setTema("escuro");
+      }
     } catch {
       /* navegador sem localStorage: segue-se sem rascunho */
     }
@@ -255,8 +284,33 @@ function Notas() {
     }
   }, [carregado, texto]);
 
-  // Com a lista a crescer, a caixa de escrita fica longe. O botao
-  // flutuante traz-nos de volta a ela sem ter de fazer scroll a mao.
+  // O tema pinta também o fundo do documento e a barra do Safari,
+  // senão o ressalto do scroll no iPad mostra o creme por baixo.
+  useEffect(() => {
+    if (!carregado) return;
+    const raiz = document.documentElement;
+    raiz.classList.toggle("notas-escuro", tema === "escuro");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", tema === "escuro" ? "#17100E" : "#F7F1E8");
+    try {
+      window.localStorage.setItem(TEMA_KEY, tema);
+    } catch {
+      /* sem localStorage o tema não fica memorizado, mas funciona na sessão */
+    }
+    return () => raiz.classList.remove("notas-escuro");
+  }, [carregado, tema]);
+
+  // A caixa de escrita cresce com o texto em vez de abrir barra de scroll.
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    area.style.height = "auto";
+    area.style.height = `${Math.min(area.scrollHeight, 420)}px`;
+  }, [texto]);
+
+  // Em ecrã estreito a caixa de escrita sai de vista. O botão flutuante
+  // traz-nos de volta a ela. No iPad ela está sempre à esquerda, por isso
+  // o CSS esconde-o a partir das duas colunas.
   useEffect(() => {
     const alvo = composerRef.current;
     if (!alvo || typeof IntersectionObserver === "undefined") return;
@@ -283,8 +337,21 @@ function Notas() {
     return [...vistas];
   }, [notes]);
 
+  // As sessoes anteriores servem para saltar para outra sem escrever;
+  // a que ja esta no campo nao precisa de atalho.
+  const outrasSessoes = useMemo(
+    () => sessoes.filter((s) => s !== talk.trim()).slice(0, 3),
+    [sessoes, talk],
+  );
+
   const contagens = useMemo(() => {
-    const base: Record<TagKey, number> = { insight: 0, ideia: 0, acao: 0, citacao: 0, contacto: 0 };
+    const base: Record<TagKey, number> = {
+      insight: 0,
+      ideia: 0,
+      acao: 0,
+      citacao: 0,
+      contacto: 0,
+    };
     notes.forEach((n) => {
       base[n.tag] += 1;
     });
@@ -307,7 +374,7 @@ function Notas() {
   const guardar = () => {
     const limpo = texto.trim();
     if (!limpo) {
-      areaRef.current?.focus();
+      areaRef.current?.focus({ preventScroll: true });
       return;
     }
     const nova: Note = {
@@ -319,8 +386,10 @@ function Notas() {
       ...(tag === "acao" ? { done: false } : {}),
     };
     setNotes((atuais) => [...atuais, nova]);
+    setUltimaId(nova.id);
     setTexto("");
-    areaRef.current?.focus();
+    // preventScroll: sem isto o painel fixo do iPad salta de volta ao topo
+    areaRef.current?.focus({ preventScroll: true });
   };
 
   const apagar = (id: string) => {
@@ -422,283 +491,388 @@ function Notas() {
   };
 
   return (
-    <>
-      <div className="aura aura-1"></div>
-      <div className="aura aura-2"></div>
+    <div className="notas-shell" data-tema={tema}>
+      <div className="notas-fundo" aria-hidden />
 
-      <main className="notas-page">
-        <header className="notas-header">
-          <span className="notas-eyebrow">
-            <span className="notas-dot" /> bloco de notas
-          </span>
-          <h1 className="notas-title">
-            {EVENTO}
-            <span className="notas-title-dot">.</span>
-          </h1>
-          <p className="notas-sub">
-            Escreve durante as sessões, exporta no fim. Fica tudo neste dispositivo.
-          </p>
-        </header>
-
-        <section className="notas-card" aria-label="Escrever nota" ref={composerRef}>
-          <label className="notas-field">
-            <span className="notas-field-label">Sessão</span>
-            <input
-              className="notas-input"
-              value={talk}
-              onChange={(e) => setTalk(e.target.value)}
-              placeholder="Keynote, painel, nome de quem está a falar..."
-              list="notas-sessoes"
-              maxLength={120}
-            />
-          </label>
-          <datalist id="notas-sessoes">
-            {sessoes.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-
-          <textarea
-            ref={areaRef}
-            className="notas-textarea"
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            onKeyDown={aoTeclar}
-            placeholder="O que acabaste de ouvir?"
-            rows={4}
-            maxLength={5000}
-          />
-
-          <div className="notas-tags" role="group" aria-label="Tipo de nota">
-            {TAGS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                title={t.hint}
-                aria-pressed={tag === t.key}
-                className={`notas-tag ${tag === t.key ? "ativa" : ""}`}
-                onClick={() => setTag(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="notas-guardar-linha">
-            <span className="notas-atalho">Ctrl + Enter guarda</span>
-            <button
-              type="button"
-              className="notas-btn-principal"
-              onClick={guardar}
-              disabled={!texto.trim()}
-            >
-              Guardar nota
-            </button>
-          </div>
-        </section>
-
-        {notes.length > 0 && (
-          <div className="notas-resumo">
-            <span className="notas-resumo-item">
-              <strong>{notes.length}</strong> {notes.length === 1 ? "nota" : "notas"}
-            </span>
-            {TAGS.filter((t) => contagens[t.key] > 0).map((t) => (
-              <span key={t.key} className="notas-resumo-item">
-                <strong>{contagens[t.key]}</strong> {t.label}
+      <div className="notas-grelha">
+        <div className="notas-painel">
+          <header className="notas-header">
+            <div className="notas-header-topo">
+              <span className="notas-eyebrow">
+                <span className="notas-ponto" /> bloco de notas
               </span>
-            ))}
-            {porFazer > 0 && (
-              <span className="notas-resumo-item notas-resumo-acao">
-                <strong>{porFazer}</strong> por fazer
-              </span>
-            )}
-          </div>
-        )}
-
-        {notes.length > 0 && (
-          <section className="notas-filtros" aria-label="Filtrar notas">
-            <input
-              className="notas-input notas-busca"
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Procurar nas notas..."
-            />
-            <div className="notas-tags">
               <button
                 type="button"
-                aria-pressed={filtro === "todas"}
-                className={`notas-tag ${filtro === "todas" ? "ativa" : ""}`}
-                onClick={() => setFiltro("todas")}
+                className="notas-tema"
+                onClick={() => setTema(tema === "claro" ? "escuro" : "claro")}
+                aria-label={tema === "claro" ? "Mudar para tema escuro" : "Mudar para tema claro"}
+                title={tema === "claro" ? "Tema escuro" : "Tema claro"}
               >
-                todas
+                {tema === "claro" ? <Moon size={16} /> : <Sun size={16} />}
               </button>
+            </div>
+            <h1 className="notas-titulo">
+              {EVENTO}
+              <span className="notas-titulo-ponto">.</span>
+            </h1>
+            <p className="notas-sub">
+              Escreve durante as sessões, exporta no fim. Fica tudo neste dispositivo.
+            </p>
+          </header>
+
+          <section className="notas-caixa" aria-label="Escrever nota" ref={composerRef}>
+            <div className="notas-campo">
+              <label className="notas-campo-etiqueta" htmlFor="notas-sessao">
+                Sessão
+              </label>
+              <div className="notas-campo-input">
+                <input
+                  id="notas-sessao"
+                  className="notas-input"
+                  value={talk}
+                  onChange={(e) => setTalk(e.target.value)}
+                  placeholder="Keynote, painel, nome de quem está a falar..."
+                  list="notas-sessoes"
+                  maxLength={120}
+                  autoComplete="off"
+                />
+                {talk && (
+                  <button
+                    type="button"
+                    className="notas-limpar-campo"
+                    onClick={() => setTalk("")}
+                    aria-label="Limpar sessão"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <datalist id="notas-sessoes">
+                {sessoes.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+              {outrasSessoes.length > 0 && (
+                <div className="notas-sessoes-recentes">
+                  {outrasSessoes.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="notas-mini-chip"
+                      onClick={() => setTalk(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <textarea
+              ref={areaRef}
+              className="notas-textarea"
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              onKeyDown={aoTeclar}
+              placeholder="O que acabaste de ouvir?"
+              rows={3}
+              maxLength={5000}
+            />
+
+            <div className="notas-chips" role="group" aria-label="Tipo de nota">
               {TAGS.map((t) => (
                 <button
                   key={t.key}
                   type="button"
-                  aria-pressed={filtro === t.key}
-                  className={`notas-tag ${filtro === t.key ? "ativa" : ""}`}
-                  onClick={() => setFiltro(filtro === t.key ? "todas" : t.key)}
+                  title={t.hint}
+                  aria-pressed={tag === t.key}
+                  className={`notas-chip tom-${t.key} ${tag === t.key ? "ativa" : ""}`}
+                  onClick={() => setTag(t.key)}
                 >
+                  <span className="notas-chip-ponto" />
                   {t.label}
                 </button>
               ))}
             </div>
-          </section>
-        )}
 
-        <section className="notas-lista" aria-live="polite">
-          {!carregado && <p className="notas-vazio">A abrir as notas...</p>}
-
-          {carregado && !notes.length && (
-            <p className="notas-vazio">
-              Ainda não há nada aqui. A primeira nota entra na caixa lá em cima.
-            </p>
-          )}
-
-          {carregado && notes.length > 0 && !visiveis.length && (
-            <p className="notas-vazio">Nenhuma nota bate com essa procura.</p>
-          )}
-
-          {grupos.map((grupo) => (
-            <div key={grupo.talk} className="notas-grupo">
-              <h2 className="notas-grupo-titulo">{grupo.talk}</h2>
-              {[...grupo.notes].reverse().map((n) => (
-                <article
-                  key={n.id}
-                  className={`notas-item ${n.tag === "acao" && n.done ? "feita" : ""}`}
-                >
-                  <div className="notas-item-topo">
-                    <span className={`notas-badge tag-${n.tag}`}>{TAG_LABEL[n.tag]}</span>
-                    <span className="notas-hora">
-                      {dia(n.createdAt)} · {horas(n.createdAt)}
-                    </span>
-                  </div>
-
-                  {aEditar === n.id ? (
-                    <>
-                      <textarea
-                        className="notas-textarea notas-textarea-edicao"
-                        value={textoEdicao}
-                        onChange={(e) => setTextoEdicao(e.target.value)}
-                        rows={4}
-                        maxLength={5000}
-                        autoFocus
-                      />
-                      <div className="notas-item-acoes">
-                        <button
-                          type="button"
-                          className="notas-btn-texto"
-                          onClick={() => gravarEdicao(n.id)}
-                        >
-                          Gravar
-                        </button>
-                        <button
-                          type="button"
-                          className="notas-btn-texto"
-                          onClick={() => setAEditar(null)}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="notas-item-texto">{n.text}</p>
-                      <div className="notas-item-acoes">
-                        {n.tag === "acao" && (
-                          <button
-                            type="button"
-                            className="notas-btn-texto"
-                            onClick={() => alternarFeito(n.id)}
-                          >
-                            {n.done ? "Reabrir" : "Marcar feita"}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="notas-btn-texto"
-                          onClick={() => comecarEdicao(n)}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="notas-btn-texto perigo"
-                          onClick={() => apagar(n.id)}
-                        >
-                          Apagar
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </article>
-              ))}
+            <div className="notas-guardar">
+              <span className="notas-atalho">
+                <kbd>⌘</kbd>
+                <kbd>↵</kbd> guarda
+              </span>
+              <button
+                type="button"
+                className="notas-botao-principal"
+                onClick={guardar}
+                disabled={!texto.trim()}
+              >
+                <Plus size={16} />
+                Guardar nota
+              </button>
             </div>
-          ))}
-        </section>
+          </section>
 
-        <section className="notas-exportar" aria-label="Exportar notas">
-          <h2 className="notas-exportar-titulo">Levar as notas daqui</h2>
-          <div className="notas-exportar-botoes">
-            <button type="button" className="notas-btn-secundario" onClick={copiarTudo}>
-              Copiar tudo
-            </button>
-            <button type="button" className="notas-btn-secundario" onClick={exportarMd}>
-              Descarregar .md
-            </button>
-            <button type="button" className="notas-btn-secundario" onClick={exportarJson}>
-              Cópia .json
-            </button>
-            <button
-              type="button"
-              className="notas-btn-secundario"
-              onClick={() => ficheiroRef.current?.click()}
-            >
-              Importar .json
-            </button>
-            <button
-              type="button"
-              className={`notas-btn-secundario perigo ${confirmarLimpeza ? "armado" : ""}`}
-              onClick={limparTudo}
-              disabled={!notes.length}
-            >
-              {confirmarLimpeza ? "Carrega outra vez para apagar" : "Apagar tudo"}
-            </button>
-          </div>
-          <input
-            ref={ficheiroRef}
-            type="file"
-            accept="application/json,.json"
-            className="notas-ficheiro"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) importar(f);
-              e.target.value = "";
-            }}
-          />
-          <p className="notas-privacidade">
-            As notas ficam guardadas só neste navegador, neste dispositivo. Não há servidor, não há
-            conta, não há cópia noutro lado. Se limpares os dados do navegador, desaparecem:
-            descarrega o .md no fim do evento.
-          </p>
-        </section>
+          {notes.length > 0 && (
+            <div className="notas-metricas">
+              <div className="notas-metrica destaque">
+                <span className="notas-metrica-valor">{notes.length}</span>
+                <span className="notas-metrica-etiqueta">
+                  {notes.length === 1 ? "nota" : "notas"}
+                </span>
+              </div>
+              <div className="notas-metrica">
+                <span className="notas-metrica-valor">{sessoes.length || 1}</span>
+                <span className="notas-metrica-etiqueta">
+                  {sessoes.length === 1 ? "sessão" : "sessões"}
+                </span>
+              </div>
+              <div className={`notas-metrica ${porFazer ? "alerta" : ""}`}>
+                <span className="notas-metrica-valor">{porFazer}</span>
+                <span className="notas-metrica-etiqueta">por fazer</span>
+              </div>
+            </div>
+          )}
 
-        <button
-          type="button"
-          className={`notas-flutuante ${mostrarAtalho ? "visivel" : ""}`}
-          onClick={irParaEscrever}
-          aria-hidden={!mostrarAtalho}
-          tabIndex={mostrarAtalho ? 0 : -1}
-        >
-          nova nota
-        </button>
-
-        <div className={`notas-aviso ${aviso ? "visivel" : ""}`} role="status">
-          {aviso}
+          <section className="notas-ferramentas" aria-label="Exportar notas">
+            <h2 className="notas-ferramentas-titulo">Levar as notas daqui</h2>
+            <div className="notas-ferramentas-botoes">
+              <button type="button" className="notas-botao" onClick={copiarTudo}>
+                <Copy size={15} />
+                Copiar tudo
+              </button>
+              <button type="button" className="notas-botao" onClick={exportarMd}>
+                <Download size={15} />
+                Descarregar .md
+              </button>
+              <button type="button" className="notas-botao" onClick={exportarJson}>
+                <FileJson size={15} />
+                Cópia .json
+              </button>
+              <button
+                type="button"
+                className="notas-botao"
+                onClick={() => ficheiroRef.current?.click()}
+              >
+                <Upload size={15} />
+                Importar .json
+              </button>
+              <button
+                type="button"
+                className={`notas-botao perigo ${confirmarLimpeza ? "armado" : ""}`}
+                onClick={limparTudo}
+                disabled={!notes.length}
+              >
+                <Trash2 size={15} />
+                {confirmarLimpeza ? "Carrega outra vez" : "Apagar tudo"}
+              </button>
+            </div>
+            <input
+              ref={ficheiroRef}
+              type="file"
+              accept="application/json,.json"
+              className="notas-ficheiro"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importar(f);
+                e.target.value = "";
+              }}
+            />
+            <p className="notas-privacidade">
+              As notas ficam guardadas só neste navegador, neste dispositivo. Não há servidor, não
+              há conta, não há cópia noutro lado. Se limpares os dados do navegador, desaparecem:
+              descarrega o .md no fim do evento.
+            </p>
+          </section>
         </div>
-      </main>
-    </>
+
+        <div className="notas-coluna">
+          {notes.length > 0 && (
+            <div className="notas-barra">
+              <div className="notas-procura">
+                <Search size={16} className="notas-procura-icone" />
+                <input
+                  className="notas-input notas-input-procura"
+                  type="search"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Procurar nas notas..."
+                  aria-label="Procurar nas notas"
+                />
+              </div>
+              <div className="notas-chips" role="group" aria-label="Filtrar por tipo">
+                <button
+                  type="button"
+                  aria-pressed={filtro === "todas"}
+                  className={`notas-chip ${filtro === "todas" ? "ativa" : ""}`}
+                  onClick={() => setFiltro("todas")}
+                >
+                  todas
+                  <span className="notas-chip-conta">{notes.length}</span>
+                </button>
+                {TAGS.filter((t) => contagens[t.key] > 0).map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    aria-pressed={filtro === t.key}
+                    className={`notas-chip tom-${t.key} ${filtro === t.key ? "ativa" : ""}`}
+                    onClick={() => setFiltro(filtro === t.key ? "todas" : t.key)}
+                  >
+                    <span className="notas-chip-ponto" />
+                    {t.label}
+                    <span className="notas-chip-conta">{contagens[t.key]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <section className="notas-lista" aria-live="polite">
+            {!carregado && <p className="notas-vazio">A abrir as notas...</p>}
+
+            {carregado && !notes.length && (
+              <div className="notas-vazio-estado">
+                <div className="notas-vazio-marca" aria-hidden>
+                  <svg viewBox="0 0 48 48" width="48" height="48" fill="none">
+                    <rect
+                      x="9"
+                      y="6"
+                      width="30"
+                      height="36"
+                      rx="5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                    />
+                    <path
+                      d="M16 17h16M16 24h16M16 31h9"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+                <p className="notas-vazio-texto">
+                  Ainda não há nada aqui. A primeira nota entra na caixa
+                  <span className="notas-so-largo"> à esquerda</span>
+                  <span className="notas-so-estreito"> lá em cima</span>.
+                </p>
+              </div>
+            )}
+
+            {carregado && notes.length > 0 && !visiveis.length && (
+              <p className="notas-vazio">Nenhuma nota bate com essa procura.</p>
+            )}
+
+            {grupos.map((grupo) => (
+              <div key={grupo.talk} className="notas-grupo">
+                <div className="notas-grupo-cabeca">
+                  <h2 className="notas-grupo-titulo">{grupo.talk}</h2>
+                  <span className="notas-grupo-conta">
+                    {grupo.notes.length} {grupo.notes.length === 1 ? "nota" : "notas"}
+                  </span>
+                </div>
+                <div className="notas-grupo-lista">
+                  {[...grupo.notes].reverse().map((n) => (
+                    <article
+                      key={n.id}
+                      className={`notas-cartao tom-${n.tag} ${n.tag === "acao" && n.done ? "feita" : ""} ${
+                        n.id === ultimaId ? "acabada" : ""
+                      }`}
+                    >
+                      <div className="notas-cartao-topo">
+                        <span className="notas-selo">
+                          <span className="notas-chip-ponto" />
+                          {TAG_LABEL[n.tag]}
+                        </span>
+                        <span className="notas-hora">
+                          {dia(n.createdAt)} · {horas(n.createdAt)}
+                        </span>
+                      </div>
+
+                      {aEditar === n.id ? (
+                        <>
+                          <textarea
+                            className="notas-textarea notas-textarea-edicao"
+                            value={textoEdicao}
+                            onChange={(e) => setTextoEdicao(e.target.value)}
+                            rows={4}
+                            maxLength={5000}
+                            autoFocus
+                          />
+                          <div className="notas-cartao-acoes">
+                            <button
+                              type="button"
+                              className="notas-acao"
+                              onClick={() => gravarEdicao(n.id)}
+                            >
+                              <Check size={14} />
+                              Gravar
+                            </button>
+                            <button
+                              type="button"
+                              className="notas-acao"
+                              onClick={() => setAEditar(null)}
+                            >
+                              <X size={14} />
+                              Cancelar
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="notas-cartao-texto">{n.text}</p>
+                          <div className="notas-cartao-acoes">
+                            {n.tag === "acao" && (
+                              <button
+                                type="button"
+                                className={`notas-acao ${n.done ? "" : "sublinhada"}`}
+                                onClick={() => alternarFeito(n.id)}
+                              >
+                                <Check size={14} />
+                                {n.done ? "Reabrir" : "Marcar feita"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="notas-acao"
+                              onClick={() => comecarEdicao(n)}
+                            >
+                              <Pencil size={14} />
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="notas-acao perigo"
+                              onClick={() => apagar(n.id)}
+                            >
+                              <Trash2 size={14} />
+                              Apagar
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className={`notas-flutuante ${mostrarAtalho ? "visivel" : ""}`}
+        onClick={irParaEscrever}
+        aria-hidden={!mostrarAtalho}
+        tabIndex={mostrarAtalho ? 0 : -1}
+      >
+        <Plus size={16} />
+        nova nota
+      </button>
+
+      <div className={`notas-aviso ${aviso ? "visivel" : ""}`} role="status">
+        {aviso}
+      </div>
+    </div>
   );
 }
